@@ -8,52 +8,56 @@ import (
 
 	"github.com/GiorgiMakharadze/CSRF-auth-golang/db"
 	"github.com/GiorgiMakharadze/CSRF-auth-golang/server/middleware/myJwt"
+	"github.com/GiorgiMakharadze/CSRF-auth-golang/server/templates"
 	"github.com/justinas/alice"
 )
 
-func NewHandler() http.Handler{
+func NewHandler() http.Handler {
 	return alice.New(recoverHandler, authHandler).ThenFunc(logicHandler)
 
 }
 
 func recoverHandler(next http.Handler) http.Handler {
-	fn := func(w http.ResponseWriter, r *http.Request){
-	defer func() {
-		if err := recover(); err != nil {
-			log.Panic("Recovered! Panic:%+v,", err)
-			http.Error(w, http.StatusText(500), 500)
-		}
-	}()
-	next.ServeHTTP(w, r)
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Panic("Recovered! Panic:%+v,", err)
+				http.Error(w, http.StatusText(500), 500)
+			}
+		}()
+		next.ServeHTTP(w, r)
 	}
 	return http.HandlerFunc(fn)
 }
 
-func authHandler(next http.Handler) http.Handler{
- fn := func(w http.ResponseWriter, r *http.Request){
-	switch r.URL.Path{
-	case "/restricted", "/logout", "deleteUser":
-	default:
+func authHandler(next http.Handler) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/restricted", "/logout", "deleteUser":
+		default:
+		}
 	}
- }
- return http.HandlerFunc(fn)
+	return http.HandlerFunc(fn)
 
 }
 
 func logicHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path{
+	switch r.URL.Path {
 	case "/restricted":
 		csrfSecret := grabCsrfFromReq(r)
-		log.Printf(csrfSecret)
+		bAlertUser := csrfSecret != ""
+
+		templates.RenderTemplate(w, "restricted", &templates.RestrictedPage{BAlertUser: bAlertUser, AlertMsg: "Hello Giorgi"})
 	case "/login":
-		switch r.Method{
+		switch r.Method {
 		case "GET":
 		case "POST":
-		default:	
+		default:
 		}
 	case "/register":
-		switch r.Method{
+		switch r.Method {
 		case "GET":
+			templates.RenderTemplate(w, "register", &templates.RegisterPage{BAlertUser: false, AlertMsg: ""})
 		case "POST":
 			r.ParseForm()
 			log.Println(r.Form)
@@ -63,8 +67,8 @@ func logicHandler(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
 			} else {
 				role := "user"
-				uuid, err = db.StoreUser(strings.Join(r.Form["username"], ""),strings.Join(r.Form["password"],""), role)
-				if err != nil{
+				uuid, err = db.StoreUser(strings.Join(r.Form["username"], ""), strings.Join(r.Form["password"], ""), role)
+				if err != nil {
 					http.Error(w, http.StatusText(500), 500)
 				}
 				log.Println("uuid: " + uuid)
@@ -75,30 +79,30 @@ func logicHandler(w http.ResponseWriter, r *http.Request) {
 		default:
 		}
 	case "/logout":
-	case "/deleteUser":		
+	case "/deleteUser":
 	default:
 	}
 }
 
-func nullifyTokenCookies(w *http.ResponseWriter, r *http.Request){
+func nullifyTokenCookies(w *http.ResponseWriter, r *http.Request) {
 	authCookie := http.Cookie{
-		Name:"AuthToken",
-		Value: "",
-		Expires:time.Now().Add(-1000 * time.Hour),
+		Name:     "AuthToken",
+		Value:    "",
+		Expires:  time.Now().Add(-1000 * time.Hour),
 		HttpOnly: true,
 	}
 	http.SetCookie(*w, &authCookie)
 
 	refreshCookie := http.Cookie{
-		Name: "RefreshToken",
-		Value: "",
-		Expires: time.Now().Add(-1000 * time.Hour),
-		HttpOnly:true,
+		Name:     "RefreshToken",
+		Value:    "",
+		Expires:  time.Now().Add(-1000 * time.Hour),
+		HttpOnly: true,
 	}
 	http.SetCookie(*w, &refreshCookie)
 
 	RefreshToken, refreshErr := r.Cookie("RefreshToken")
-	if refreshErr == http.ErrNoCookie{
+	if refreshErr == http.ErrNoCookie {
 		return
 	} else if refreshErr != nil {
 		log.Panic("panic: %+v", refreshErr)
@@ -107,18 +111,18 @@ func nullifyTokenCookies(w *http.ResponseWriter, r *http.Request){
 	myJwt.RevokeRefreshToken(RefreshToken.Value)
 }
 
-func setAuthAndRefreshCookies(w *http.ResponseWriter, authTokenString, refreshTokenString string){
-	authCookie  := http.Cookie{
-		Name: "AuthToken",
-		Value: authTokenString,
+func setAuthAndRefreshCookies(w *http.ResponseWriter, authTokenString, refreshTokenString string) {
+	authCookie := http.Cookie{
+		Name:     "AuthToken",
+		Value:    authTokenString,
 		HttpOnly: true,
 	}
 	http.SetCookie(*w, &authCookie)
 
 	refreshCookie := http.Cookie{
-		Name: "RefreshToken",
-		Value: refreshTokenString,
-		HttpOnly:true,
+		Name:     "RefreshToken",
+		Value:    refreshTokenString,
+		HttpOnly: true,
 	}
 	http.SetCookie(*w, &refreshCookie)
 }

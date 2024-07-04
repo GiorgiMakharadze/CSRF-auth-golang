@@ -15,7 +15,7 @@ func InitDB(){
 }
 
 func StoreUser(username, password, role string)(uuid string, err error){
-
+return
 }
 
 func DeleteUser() {
@@ -44,7 +44,7 @@ func DeleteRefreshToken(){
 }
 
 func CheckAndRefreshToken() bool {
-
+return false
 }
 
 func LogUserIn()() {
@@ -55,4 +55,6 @@ func generateBcryptHash()() {
 
 }
 
-func checkPasswordAgainstHash() error {}
+func checkPasswordAgainstHash() error {
+	return errors.New("aeee")
+}

@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/GiorgiMakharadze/CSRF-auth-golang/middleware"
+	"github.com/GiorgiMakharadze/CSRF-auth-golang/server/middleware"
 )
 
 func StartServer(hostname, port string) error {
@@ -13,7 +13,7 @@ func StartServer(hostname, port string) error {
 	log.Printf("Listening on: %s", host)
 
 	handler := middleware.NewHandler()
-	
+
 	http.Handle("/", handler)
 	return http.ListenAndServe(host, nil)
 }

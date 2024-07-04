@@ -1,17 +1,25 @@
 package myJwt
 
 import (
+	"crypto/rsa"
+	_ "errors"
+	_ "log"
 	"os"
 	"time"
 
 	"github.com/GiorgiMakharadze/CSRF-auth-golang/db"
 	"github.com/GiorgiMakharadze/CSRF-auth-golang/db/models"
-	jwt "github.com/dgrijaval/jwt-go"
+	jwt "github.com/dgrijalva/jwt-go"
 )
 
 const(
 	privKeyPath = "keys/app.rsa"
 	pubKeyPath = "keys/app.rsa.pub"
+)
+
+var (
+	signKey   *rsa.PrivateKey
+	verifyKey *rsa.PublicKey
 )
 
 func InitJWT() error{
@@ -100,7 +108,6 @@ func updateAuthTokenString()() {
 }
 
 func RevokeRefreshToken() error {
-
 }
 
 func updateRefreshTokenCsrf()(){
