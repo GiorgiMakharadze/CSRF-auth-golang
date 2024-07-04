@@ -1,15 +1,14 @@
 package middleware
 
 import (
-	"github.com/justinas/alice"
-	"net/http"
 	"log"
-	"time"
+	"net/http"
 	"strings"
-	"github.com/GiorgiMakharadze/CSRF-auth-golang/server/middleware/myJwt"
+	"time"
+
 	"github.com/GiorgiMakharadze/CSRF-auth-golang/db"
-
-
+	"github.com/GiorgiMakharadze/CSRF-auth-golang/server/middleware/myJwt"
+	"github.com/justinas/alice"
 )
 
 func NewHandler() http.Handler{
@@ -37,11 +36,15 @@ func authHandler(next http.Handler) http.Handler{
 	default:
 	}
  }
+ return http.HandlerFunc(fn)
+
 }
 
 func logicHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path{
 	case "/restricted":
+		csrfSecret := grabCsrfFromReq(r)
+		log.Printf(csrfSecret)
 	case "/login":
 		switch r.Method{
 		case "GET":
@@ -51,7 +54,24 @@ func logicHandler(w http.ResponseWriter, r *http.Request) {
 	case "/register":
 		switch r.Method{
 		case "GET":
-		case "POST:
+		case "POST":
+			r.ParseForm()
+			log.Println(r.Form)
+
+			_, uuid, err := db.FetchUserByUsername(strings.Join(r.Form["username"], ""))
+			if err == nil {
+				w.WriteHeader(http.StatusUnauthorized)
+			} else {
+				role := "user"
+				uuid, err = db.StoreUser(strings.Join(r.Form["username"], ""),strings.Join(r.Form["password"],""), role)
+				if err != nil{
+					http.Error(w, http.StatusText(500), 500)
+				}
+				log.Println("uuid: " + uuid)
+
+				myJwt.CreateNewTokens(uuid, role)
+			}
+
 		default:
 		}
 	case "/logout":
