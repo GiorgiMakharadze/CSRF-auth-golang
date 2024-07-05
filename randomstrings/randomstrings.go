@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 )
 
-func GenerateRandomBytes(n int)([]byte, error) {
+func GenerateRandomBytes(n int) ([]byte, error) {
 	b := make([]byte, n)
 	_, err := rand.Read(b)
 	if err != nil {

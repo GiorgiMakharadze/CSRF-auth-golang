@@ -21,7 +21,7 @@ func recoverHandler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Panic("Recovered! Panic:%+v,", err)
+				log.Panicf("Recovered! Panic:%+v,", err)
 				http.Error(w, http.StatusText(500), 500)
 			}
 		}()
@@ -33,38 +33,69 @@ func recoverHandler(next http.Handler) http.Handler {
 func authHandler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/restricted", "/logout", "deleteUser":
+		case "/restricted", "/logout", "/deleteUser":
 			log.Println("In auth restricted section")
 
-			AuthCookie,authErr := r.Cookie("AuthCookie")
-			if authErr == http.ErrNoCookie{
-				log.Println("Unauthorized attempt! No Auth Cookie")
+			AuthCookie, authErr := r.Cookie("AuthToken")
+			if authErr == http.ErrNoCookie {
+				log.Println("Unauthorized attempt! No auth cookie")
 				nullifyTokenCookies(&w, r)
-				http.Error(w, http.StatusText(401), 401)
+				http.Redirect(w, r, "/login", http.StatusFound)
+				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+				return
 			} else if authErr != nil {
-				log.Panic("panic: %+v", authErr)
+				log.Panicf("panic: %+v", authErr)
 				nullifyTokenCookies(&w, r)
 				http.Error(w, http.StatusText(500), 500)
 				return
 			}
 
 			RefreshCookie, refreshErr := r.Cookie("RefreshToken")
-			if refreshErr == http.ErrNoCookie{
-				log.Println("Unauthorized attempt! No Refresh Cookie")
+			if refreshErr == http.ErrNoCookie {
+				log.Println("Unauthorized attempt! No refresh cookie")
 				nullifyTokenCookies(&w, r)
-				http.Redirect(w,r,"/login", 302)
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
 			} else if refreshErr != nil {
-				log.Panic("panic: %+v", refreshErr)
+				log.Panicf("panic: %+v", refreshErr)
 				nullifyTokenCookies(&w, r)
 				http.Error(w, http.StatusText(500), 500)
 				return
 			}
-			grabCsrfFromReq()
+
+			requestCsrfToken := grabCsrfFromReq(r)
+			log.Println(requestCsrfToken)
+
+			authTokenString, refreshTokenString, csrfSecret, err := myJwt.CheckAndRefreshTokens(AuthCookie.Value, RefreshCookie.Value, requestCsrfToken)
+			if err != nil {
+				if err.Error() == "Unauthorized" {
+					log.Println("Unauthorized attempt! JWT's not valid!")
+					nullifyTokenCookies(&w, r)
+					http.Redirect(w, r, "/login", http.StatusFound)
+					http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+					return
+				} else {
+					log.Println("err not nil")
+					log.Panicf("panic: %+v", err)
+					nullifyTokenCookies(&w, r)
+					http.Error(w, http.StatusText(500), 500)
+					return
+				}
+			}
+			log.Println("Successfully recreated jwts")
+
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+
+			setAuthAndRefreshCookies(&w, authTokenString, refreshTokenString)
+			w.Header().Set("X-CSRF-Token", csrfSecret)
+
 		default:
 		}
-	}
-	return http.HandlerFunc(fn)
 
+		next.ServeHTTP(w, r)
+	}
+
+	return http.HandlerFunc(fn)
 }
 
 func logicHandler(w http.ResponseWriter, r *http.Request) {
@@ -73,17 +104,41 @@ func logicHandler(w http.ResponseWriter, r *http.Request) {
 		csrfSecret := grabCsrfFromReq(r)
 		bAlertUser := csrfSecret != ""
 
-		templates.RenderTemplate(w, "restricted", &templates.RestrictedPage{BAlertUser: bAlertUser, AlertMsg: "Hello Giorgi"})
+		templates.RenderTemplate(w, "restricted", &templates.RestrictedPage{BAlertUser: bAlertUser, AlertMsg: "Hello Giorgi!"})
+
 	case "/login":
 		switch r.Method {
 		case "GET":
+			templates.RenderTemplate(w, "login", &templates.LoginPage{BAlertUser: false, AlertMsg: ""})
+
 		case "POST":
+			r.ParseForm()
+			log.Println(r.Form)
+
+			user, uuid, loginErr := db.LogUserIn(strings.Join(r.Form["username"], ""), strings.Join(r.Form["password"], ""))
+			log.Println(user, uuid, loginErr)
+			if loginErr != nil {
+				w.WriteHeader(http.StatusUnauthorized)
+			} else {
+				authTokenString, refreshTokenString, csrfSecret, err := myJwt.CreateNewTokens(uuid, user.Role)
+				if err != nil {
+					http.Error(w, http.StatusText(500), 500)
+				}
+
+				setAuthAndRefreshCookies(&w, authTokenString, refreshTokenString)
+				w.Header().Set("X-CSRF-Token", csrfSecret)
+
+				w.WriteHeader(http.StatusOK)
+			}
+
 		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	case "/register":
 		switch r.Method {
 		case "GET":
 			templates.RenderTemplate(w, "register", &templates.RegisterPage{BAlertUser: false, AlertMsg: ""})
+
 		case "POST":
 			r.ParseForm()
 			log.Println(r.Form)
@@ -100,11 +155,13 @@ func logicHandler(w http.ResponseWriter, r *http.Request) {
 				log.Println("uuid: " + uuid)
 
 				authTokenString, refreshTokenString, csrfSecret, err := myJwt.CreateNewTokens(uuid, role)
-				if err !=nil {
+				if err != nil {
 					http.Error(w, http.StatusText(500), 500)
 				}
-				setAuthAndRefreshCookies(&w, authTokenString,refreshTokenString)
-				w.Header().Set("X-CSRF-TOKEN", csrfSecret)
+
+				setAuthAndRefreshCookies(&w, authTokenString, refreshTokenString)
+				w.Header().Set("X-CSRF-Token", csrfSecret)
+
 				w.WriteHeader(http.StatusOK)
 			}
 
@@ -112,10 +169,39 @@ func logicHandler(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	case "/logout":
-		nullifyTokenCookies(&w,r)
-		http.Redirect(w, r, "/login", 302)
+		nullifyTokenCookies(&w, r)
+		http.Redirect(w, r, "/login", http.StatusFound)
+
 	case "/deleteUser":
+		log.Println("Deleting user")
+
+		AuthCookie, authErr := r.Cookie("AuthToken")
+		if authErr == http.ErrNoCookie {
+			log.Println("Unauthorized attempt! No auth cookie")
+			nullifyTokenCookies(&w, r)
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		} else if authErr != nil {
+			log.Panicf("panic: %+v", authErr)
+			nullifyTokenCookies(&w, r)
+			http.Error(w, http.StatusText(500), 500)
+			return
+		}
+
+		uuid, uuidErr := myJwt.GrabUUID(AuthCookie.Value)
+		if uuidErr != nil {
+			log.Panicf("panic: %+v", uuidErr)
+			nullifyTokenCookies(&w, r)
+			http.Error(w, http.StatusText(500), 500)
+			return
+		}
+
+		db.DeleteUser(uuid)
+		nullifyTokenCookies(&w, r)
+		http.Redirect(w, r, "/register", http.StatusFound)
+
 	default:
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -126,6 +212,7 @@ func nullifyTokenCookies(w *http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(-1000 * time.Hour),
 		HttpOnly: true,
 	}
+
 	http.SetCookie(*w, &authCookie)
 
 	refreshCookie := http.Cookie{
@@ -134,24 +221,27 @@ func nullifyTokenCookies(w *http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(-1000 * time.Hour),
 		HttpOnly: true,
 	}
+
 	http.SetCookie(*w, &refreshCookie)
 
-	RefreshToken, refreshErr := r.Cookie("RefreshToken")
+	RefreshCookie, refreshErr := r.Cookie("RefreshToken")
 	if refreshErr == http.ErrNoCookie {
 		return
 	} else if refreshErr != nil {
-		log.Panic("panic: %+v", refreshErr)
-		http.Error(*w, http.StatusText(500), 500)
+		log.Panicf("panic: %+v", refreshErr)
+		http.Error(*w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
-	myJwt.RevokeRefreshToken(RefreshToken.Value)
+
+	myJwt.RevokeRefreshToken(RefreshCookie.Value)
 }
 
-func setAuthAndRefreshCookies(w *http.ResponseWriter, authTokenString, refreshTokenString string) {
+func setAuthAndRefreshCookies(w *http.ResponseWriter, authTokenString string, refreshTokenString string) {
 	authCookie := http.Cookie{
 		Name:     "AuthToken",
 		Value:    authTokenString,
 		HttpOnly: true,
 	}
+
 	http.SetCookie(*w, &authCookie)
 
 	refreshCookie := http.Cookie{
@@ -159,6 +249,7 @@ func setAuthAndRefreshCookies(w *http.ResponseWriter, authTokenString, refreshTo
 		Value:    refreshTokenString,
 		HttpOnly: true,
 	}
+
 	http.SetCookie(*w, &refreshCookie)
 }
 

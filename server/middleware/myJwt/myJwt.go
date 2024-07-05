@@ -12,9 +12,9 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-const(
+const (
 	privKeyPath = "keys/app.rsa"
-	pubKeyPath = "keys/app.rsa.pub"
+	pubKeyPath  = "keys/app.rsa.pub"
 )
 
 var (
@@ -22,9 +22,9 @@ var (
 	verifyKey *rsa.PublicKey
 )
 
-func InitJWT() error{
+func InitJWT() error {
 	signBytes, err := os.ReadFile(privKeyPath)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -33,7 +33,7 @@ func InitJWT() error{
 		return err
 	}
 
-	verifyBytes,err := os.ReadFile(pubKeyPath)
+	verifyBytes, err := os.ReadFile(pubKeyPath)
 	if err != nil {
 		return err
 	}
@@ -269,7 +269,7 @@ func updateRefreshTokenCsrf(oldRefreshTokenString string, newCsrfString string) 
 
 	refreshClaims := models.TokenClaims{
 		StandardClaims: jwt.StandardClaims{
-			Id:        oldRefreshTokenClaims.StandardClaims.Id, 
+			Id:        oldRefreshTokenClaims.StandardClaims.Id,
 			Subject:   oldRefreshTokenClaims.StandardClaims.Subject,
 			ExpiresAt: oldRefreshTokenClaims.StandardClaims.ExpiresAt,
 		},
