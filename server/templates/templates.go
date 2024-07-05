@@ -16,17 +16,19 @@ type RegisterPage struct {
 	AlertMsg   string
 }
 
+
 type RestrictedPage struct {
-	BAlertUser bool
-	AlertMsg   string
+	CsrfSecret    string
+	SecretMessage string
+	Username       string 
 }
 
-var templates = template.Must(template.ParseFiles("./server/templates/templatesFiles/login.tmpl", "./server/templates/templatesFiles/register.tmpl", "./server/templates/templatesFiles/restricted.tmpl"))
+var templates = template.Must(template.ParseFiles("./server/templates/templateFiles/login.tmpl", "./server/templates/templateFiles/register.tmpl", "./server/templates/templateFiles/restricted.tmpl"))
 
 func RenderTemplate(w http.ResponseWriter, tmpl string, p interface{}) {
 	err := templates.ExecuteTemplate(w, tmpl+".tmpl", p)
 	if err != nil {
-		log.Printf("Template error here: %v", err)
+		log.Printf("Temlate error here: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

@@ -31,80 +31,102 @@ func recoverHandler(next http.Handler) http.Handler {
 }
 
 func authHandler(next http.Handler) http.Handler {
-	fn := func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/restricted", "/logout", "/deleteUser":
-			log.Println("In auth restricted section")
+    fn := func(w http.ResponseWriter, r *http.Request) {
+        log.Println("Auth handler triggered for path:", r.URL.Path)
 
-			AuthCookie, authErr := r.Cookie("AuthToken")
-			if authErr == http.ErrNoCookie {
-				log.Println("Unauthorized attempt! No auth cookie")
-				nullifyTokenCookies(&w, r)
-				http.Redirect(w, r, "/login", http.StatusFound)
-				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-				return
-			} else if authErr != nil {
-				log.Panicf("panic: %+v", authErr)
-				nullifyTokenCookies(&w, r)
-				http.Error(w, http.StatusText(500), 500)
-				return
-			}
+        switch r.URL.Path {
+        case "/restricted", "/logout", "/deleteUser":
+            log.Println("In auth restricted section")
 
-			RefreshCookie, refreshErr := r.Cookie("RefreshToken")
-			if refreshErr == http.ErrNoCookie {
-				log.Println("Unauthorized attempt! No refresh cookie")
-				nullifyTokenCookies(&w, r)
-				http.Redirect(w, r, "/login", http.StatusFound)
-				return
-			} else if refreshErr != nil {
-				log.Panicf("panic: %+v", refreshErr)
-				nullifyTokenCookies(&w, r)
-				http.Error(w, http.StatusText(500), 500)
-				return
-			}
+            AuthCookie, authErr := r.Cookie("AuthToken")
+            if authErr == http.ErrNoCookie {
+                log.Println("Unauthorized attempt! No auth cookie")
+                nullifyTokenCookies(&w, r)
+                http.Redirect(w, r, "/login", http.StatusFound)
+                http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+                return
+            } else if authErr != nil {
+                log.Panicf("panic: %+v", authErr)
+                nullifyTokenCookies(&w, r)
+                http.Error(w, http.StatusText(500), 500)
+                return
+            }
 
-			requestCsrfToken := grabCsrfFromReq(r)
-			log.Println(requestCsrfToken)
+            RefreshCookie, refreshErr := r.Cookie("RefreshToken")
+            if refreshErr == http.ErrNoCookie {
+                log.Println("Unauthorized attempt! No refresh cookie")
+                nullifyTokenCookies(&w, r)
+                http.Redirect(w, r, "/login", http.StatusFound)
+                return
+            } else if refreshErr != nil {
+                log.Panicf("panic: %+v", refreshErr)
+                nullifyTokenCookies(&w, r)
+                http.Error(w, http.StatusText(500), 500)
+                return
+            }
 
-			authTokenString, refreshTokenString, csrfSecret, err := myJwt.CheckAndRefreshTokens(AuthCookie.Value, RefreshCookie.Value, requestCsrfToken)
-			if err != nil {
-				if err.Error() == "Unauthorized" {
-					log.Println("Unauthorized attempt! JWT's not valid!")
-					nullifyTokenCookies(&w, r)
-					http.Redirect(w, r, "/login", http.StatusFound)
-					http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-					return
-				} else {
-					log.Println("err not nil")
-					log.Panicf("panic: %+v", err)
-					nullifyTokenCookies(&w, r)
-					http.Error(w, http.StatusText(500), 500)
-					return
-				}
-			}
-			log.Println("Successfully recreated jwts")
+            requestCsrfToken := grabCsrfFromReq(r)
+            log.Println("CSRF Token from request:", requestCsrfToken)
 
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+            authTokenString, refreshTokenString, csrfSecret, err := myJwt.CheckAndRefreshTokens(AuthCookie.Value, RefreshCookie.Value, requestCsrfToken)
+            if err != nil {
+                if err.Error() == "Unauthorized" {
+                    log.Println("Unauthorized attempt! JWT's not valid!")
+                    nullifyTokenCookies(&w, r)
+                    http.Redirect(w, r, "/login", http.StatusFound)
+                    http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+                    return
+                } else {
+                    log.Println("Error validating tokens:", err)
+                    log.Panicf("panic: %+v", err)
+                    nullifyTokenCookies(&w, r)
+                    http.Error(w, http.StatusText(500), 500)
+                    return
+                }
+            }
+            log.Println("Successfully recreated JWTs")
 
-			setAuthAndRefreshCookies(&w, authTokenString, refreshTokenString)
-			w.Header().Set("X-CSRF-Token", csrfSecret)
+            w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		default:
-		}
+            setAuthAndRefreshCookies(&w, authTokenString, refreshTokenString)
+            w.Header().Set("X-CSRF-Token", csrfSecret)
 
-		next.ServeHTTP(w, r)
-	}
+        default:
+        }
 
-	return http.HandlerFunc(fn)
+        next.ServeHTTP(w, r)
+    }
+
+    return http.HandlerFunc(fn)
 }
 
 func logicHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/restricted":
 		csrfSecret := grabCsrfFromReq(r)
-		bAlertUser := csrfSecret != ""
+		AuthCookie, err := r.Cookie("AuthToken")
+        if err != nil {
+            http.Redirect(w, r, "/login", http.StatusFound)
+            return
+        }
 
-		templates.RenderTemplate(w, "restricted", &templates.RestrictedPage{BAlertUser: bAlertUser, AlertMsg: "Hello Giorgi!"})
+        uuid, err := myJwt.GrabUUID(AuthCookie.Value)
+        if err != nil {
+            log.Panicf("panic: %+v", err)
+            http.Error(w, http.StatusText(500), 500)
+            return
+        }
+
+        user, err := db.FetchUserById(uuid)
+        if err != nil {
+            log.Panicf("panic: %+v", err)
+            http.Error(w, http.StatusText(500), 500)
+            return
+        }
+
+		templates.RenderTemplate(w, "restricted", &templates.RestrictedPage{CsrfSecret: csrfSecret, SecretMessage: uuid, Username: user.Username})
+
+
 
 	case "/login":
 		switch r.Method {
@@ -262,3 +284,4 @@ func grabCsrfFromReq(r *http.Request) string {
 		return r.Header.Get("X-CSRF-Token")
 	}
 }
+
